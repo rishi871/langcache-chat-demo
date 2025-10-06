@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LangCache Chat Demo</title>
+    <style>
+      :root { --bg:#0f172a; --panel:#111827; --ink:#e5e7eb; --muted:#9ca3af; --accent:#22c55e; --warn:#f59e0b; }
+      *{box-sizing:border-box}
+      body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial;background:var(--bg);color:var(--ink);}
+      .wrap{max-width:840px;margin:0 auto;min-height:100dvh;display:flex;flex-direction:column}
+      header{padding:16px 20px;border-bottom:1px solid #1f2937;background:#0b1220;position:sticky;top:0;z-index:10}
+      header h1{font-size:16px;margin:0;letter-spacing:.2px}
+      header .sub{font-size:12px;color:var(--muted)}
+      main{flex:1;display:flex;gap:16px;padding:16px}
+      .panel{flex:1;background:var(--panel);border:1px solid #1f2937;border-radius:14px;display:flex;flex-direction:column;overflow:hidden;}
+      .msgs{flex:1;overflow:auto;padding:16px;display:flex;flex-direction:column;gap:10px}
+      .row{display:flex;gap:10px;align-items:flex-end}
+      .bubble{max-width:75%;padding:10px 12px;border-radius:14px;line-height:1.35;border:1px solid #1f2937;white-space:pre-wrap}
+      .user{justify-content:flex-end}
+      .user .bubble{background:#1f2937}
+      .bot .bubble{background:#0b1220}
+      .meta{display:flex;align-items:center;gap:8px;margin-left:4px}
+      .badge{font-size:11px;padding:2px 6px;border-radius:999px;border:1px solid #1f2937;color:#9ca3af}
+      .badge.hit{border-color:#14532d;color:#86efac}
+      .badge.llm{border-color:#7c2d12;color:#fdba74}
+      .input{display:flex;gap:10px;padding:12px;border-top:1px solid #1f2937;background:#0b1220}
+      .input input, .input textarea{flex:1;background:#0b1220;color:var(--ink);padding:12px;border:1px solid #334155;border-radius:10px;outline:none;font:inherit}
+      .input button{background:#16a34a;border:1px solid #065f46;color:#062e21;padding:10px 14px;border-radius:10px;font-weight:600;cursor:pointer}
+      .input button:disabled{opacity:.6;cursor:not-allowed}
+      .sidebar{width:260px;display:flex;flex-direction:column;gap:12px}
+      .card{background:var(--panel);border:1px solid #1f2937;border-radius:14px;padding:12px}
+      .card h3{margin:0 0 8px 0;font-size:13px;color:#cbd5e1;text-transform:uppercase;letter-spacing:.6px}
+      .row.system{justify-content:center}
+      .row.system .bubble{max-width:100%;text-align:center;background:transparent;border:none;color:var(--muted)}
+      a{color:#93c5fd}
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>LangCache Chat Demo <span class="sub">— search cache → fallback to LLM → write-back</span></h1>
+      </header>
+      <main>
+        <section class="panel" aria-label="Chat panel">
+          <div id="msgs" class="msgs" role="log" aria-live="polite" aria-relevant="additions"></div>
+          <form id="frm" class="input" autocomplete="off">
+            <input id="prompt" name="prompt" placeholder="Ask something…" required />
+            <input id="scope" name="scope" placeholder="optional scope (e.g., faq, orders)" />
+            <button id="send" type="submit">Send</button>
+          </form>
+        </section>
+        <aside class="sidebar">
+          <div class="card">
+            <h3>Tips</h3>
+            <ul style="margin:0;padding-left:18px;color:#cbd5e1">
+              <li>First ask something, then repeat with a small variation to see a <em>cache hit</em>.</li>
+              <li>Try setting <code>scope</code> to segment the cache.</li>
+              <li>Open DevTools → Network to see the <code>/chat</code> responses.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Status</h3>
+            <div id="status" style="font-size:13px;color:#cbd5e1">Ready</div>
+          </div>
+          <div class="card">
+            <h3>Backend</h3>
+            <div style="font-size:13px;color:#cbd5e1">POST <code>/chat</code> → { prompt, scope }</div>
+          </div>
+        </aside>
+      </main>
+    </div>
+
+    <script>
+      const msgs = document.getElementById('msgs');
+      const frm = document.getElementById('frm');
+      const promptEl = document.getElementById('prompt');
+      const scopeEl = document.getElementById('scope');
+      const statusEl = document.getElementById('status');
+
+      function addMessage(role, text, meta){
+        const row = document.createElement('div');
+        row.className = 'row ' + role;
+
+        if(role==='system'){
+          row.classList.add('system');
+          const b = document.createElement('div');
+          b.className = 'bubble';
+          b.textContent = text;
+          row.appendChild(b);
+          msgs.appendChild(row);
+          msgs.scrollTop = msgs.scrollHeight; return;
+        }
+
+        const bubble = document.createElement('div');
+        bubble.className = 'bubble';
+        bubble.textContent = text;
+        row.appendChild(bubble);
+
+        if(meta){
+          const metaBox = document.createElement('div');
+          metaBox.className = 'meta';
+
+          if(meta.cached!==undefined){
+            const badge = document.createElement('span');
+            badge.className = 'badge ' + (meta.cached ? 'hit' : 'llm');
+            badge.textContent = meta.cached ? 'cache hit' : 'llm';
+            metaBox.appendChild(badge);
+          }
+
+          if(meta.latencyMs!==undefined){
+            const latency = document.createElement('span');
+            latency.className = 'badge';
+            latency.textContent = meta.latencyMs + ' ms';
+            metaBox.appendChild(latency);
+          }
+
+          row.appendChild(metaBox);
+        }
+
+        msgs.appendChild(row);
+        msgs.scrollTop = msgs.scrollHeight;
+      }
+
+      addMessage('system', 'Welcome! Ask a question to test LangCache.');
+
+      frm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const prompt = promptEl.value.trim();
+        const scope = scopeEl.value.trim();
+        if(!prompt) return;
+
+        addMessage('user', prompt);
+        promptEl.value = '';
+        statusEl.textContent = 'Thinking…';
+
+        const t0 = performance.now();
+        try{
+          const res = await fetch('/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt, scope: scope || undefined })
+          });
+          const data = await res.json();
+          const t1 = performance.now();
+          const latencyMs = Math.round(t1 - t0);
+
+          if(data.error){
+            addMessage('bot', 'Error: ' + data.error);
+            statusEl.textContent = 'Error';
+            return;
+          }
+
+          addMessage('bot', data.text, { cached: data.cached, latencyMs });
+          statusEl.textContent = data.cached ? 'Served from cache' : 'Served by LLM (cached for next time)';
+        } catch(err){
+          addMessage('bot', 'Network error: ' + err.message);
+          statusEl.textContent = 'Network error';
+        }
+      });
+    </script>
+  </body>
+</html>

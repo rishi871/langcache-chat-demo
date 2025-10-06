@@ -1,0 +1,18 @@
+# --- Core Framework ---
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+
+# --- Environment management ---
+python-dotenv>=1.0.1
+
+# --- Redis LangCache SDK ---
+langcache>=0.4.0
+
+# --- OpenAI client ---
+openai>=1.40.0
+
+# --- Optional: static file handling ---
+aiofiles>=23.2.1
+
+# --- (Optional) if you want type checking or linting locally ---
+pydantic>=2.8.0
